@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NanoForge – iPod nano Firmware Toolkit</title>
+    <meta name="description" content="Browser-based firmware modification toolkit for iPod nano 6th and 7th generation. No server required.">
+
+    <!-- Open Graph -->
+    <meta property="og:title"       content="NanoForge – iPod nano Firmware Toolkit">
+    <meta property="og:description" content="Inspect, modify, and rebuild iPod nano firmware entirely in your browser.">
+    <meta property="og:type"        content="website">
+
+    <link rel="stylesheet" href="public/style.css">
+</head>
+<body>
+
+<!-- ─── App Header ─────────────────────────────────────────────────────────── -->
+<header id="app-header">
+    <div class="logo">
+        <span class="logo-icon">🔬</span>
+        <div>
+            <div>NanoForge</div>
+            <div class="logo-sub">iPod nano Firmware Toolkit</div>
+        </div>
+    </div>
+    <div class="header-actions">
+        <button class="btn-ghost btn-sm" id="btn-new-firmware" title="Load a different firmware file">⬆ New Firmware</button>
+        <a class="btn btn-ghost btn-sm" href="https://github.com/19JVJeffery/Custom-Firmware-iPod-nano-6-7" target="_blank" rel="noopener">GitHub</a>
+    </div>
+</header>
+
+<!-- ─── Screen: Welcome ────────────────────────────────────────────────────── -->
+<div id="screen-welcome">
+
+    <div class="welcome-hero">
+        <h1>🔬 NanoForge</h1>
+        <p class="tagline">Browser-based firmware modification toolkit for iPod nano 6G &amp; 7G</p>
+        <p class="tagline">No installation. No server. Everything runs locally in your browser.</p>
+        <span class="version-badge">v1.0 · Client-Side Only</span>
+    </div>
+
+    <div class="warning-banner">
+        <strong>⚠️ Important Safety Notice</strong><br>
+        Modifying and flashing custom firmware may <strong>permanently brick your device</strong>.
+        Always keep a backup of the original firmware. This tool is intended for
+        <strong>research and development purposes only</strong>. Use at your own risk.
+        NanoForge does not take responsibility for any damage to your device.
+    </div>
+
+    <section class="device-select-section">
+        <h2>Step 1 – Select your iPod model</h2>
+        <div class="device-btn-group">
+            <button class="device-btn" data-device="6g">
+                <span class="device-icon">📱</span>
+                <strong>iPod nano 6th Gen</strong>
+                <span class="device-label">2010 · 240×240 · 8/16 GB</span>
+            </button>
+            <button class="device-btn" data-device="7g">
+                <span class="device-icon">📱</span>
+                <strong>iPod nano 7th Gen</strong>
+                <span class="device-label">2012/2015 · 240×432 · 16 GB</span>
+            </button>
+        </div>
+    </section>
+
+    <div id="device-banner" class="hidden">
+        Selected: <strong id="selected-device-label">–</strong>
+        <span id="device-help" style="margin-left:0.75rem; color:#8888aa;"></span>
+    </div>
+
+    <section id="upload-section" class="hidden">
+        <h2 style="font-size:1rem; color:var(--text-dim); margin-bottom:0.75rem;">Step 2 – Load your IPSW firmware file</h2>
+
+        <div id="drop-zone">
+            <div class="drop-icon">📂</div>
+            <p><strong>Drop your .ipsw file here</strong></p>
+            <p>or click to browse &nbsp;·&nbsp; No data is uploaded to any server</p>
+        </div>
+        <input type="file" id="ipsw-input" accept=".ipsw" class="hidden">
+    </section>
+
+    <div style="margin-top:2rem; padding:1rem; background:var(--bg-surface); border:1px solid var(--border); border-radius:8px; font-size:0.82rem; color:var(--text-dim);">
+        <strong style="color:var(--text);">Where to get a firmware file:</strong><br>
+        Stock IPSW files are available from Apple's servers or the community-maintained
+        <a href="https://github.com/g0lder/NanoVault/tree/main/Stock" target="_blank" rel="noopener">NanoVault repository</a>.
+        If you encounter a "Unknown compression type: 8" error, use a stock IPSW or one
+        built with <a href="https://github.com/nfzerox/ipod_theme" target="_blank" rel="noopener">ipod_theme</a>.
+    </div>
+</div>
+
+<!-- ─── Screen: Loading ────────────────────────────────────────────────────── -->
+<div id="screen-loading" class="hidden">
+    <div class="spinner"></div>
+    <h2>Parsing Firmware…</h2>
+    <div class="progress-wrap">
+        <div class="progress-bar" id="progress-bar"></div>
+    </div>
+    <div id="progress-text">Initialising…</div>
+</div>
+
+<!-- ─── Screen: Workspace ──────────────────────────────────────────────────── -->
+<div id="screen-workspace" class="hidden">
+
+    <!-- Tab Navigation -->
+    <nav class="workspace-nav">
+        <button class="tab-btn active" data-tab="assets">Assets</button>
+        <button class="tab-btn" data-tab="patches">
+            Patches <span class="badge" id="patch-count">0</span>
+        </button>
+        <button class="tab-btn" data-tab="export">Export</button>
+        <button class="tab-btn" data-tab="explorer">Explorer</button>
+        <button class="tab-btn" data-tab="info">About</button>
+    </nav>
+
+    <div class="workspace-body">
+
+        <!-- ── Left Sidebar: Firmware Explorer (always visible on desktop) ── -->
+        <aside id="explorer-panel">
+            <div class="explorer-section">
+                <h3>IPSW File</h3>
+                <div id="firmware-tree">–</div>
+            </div>
+            <div class="explorer-section">
+                <h3>MSE Partitions</h3>
+                <div id="partition-table">–</div>
+            </div>
+            <div class="explorer-section">
+                <h3>IMG1 Header</h3>
+                <div id="img1-info">–</div>
+            </div>
+            <div class="explorer-section">
+                <h3>FAT16 Contents</h3>
+                <div id="fat16-files">–</div>
+            </div>
+        </aside>
+
+        <!-- ── Tab: Assets ─────────────────────────────────────────────────── -->
+        <div class="tab-content active" id="tab-assets">
+            <div class="asset-toolbar">
+                <button id="toggle-all-btn" class="btn-sm btn-ghost">Show All Assets</button>
+                <span class="count" id="asset-count">–</span>
+            </div>
+            <div id="asset-grid-scroll">
+                <div id="asset-grid-inner"></div>
+            </div>
+        </div>
+
+        <!-- ── Tab: Patches ────────────────────────────────────────────────── -->
+        <div class="tab-content" id="tab-patches">
+            <div class="patches-header">
+                <h2>Modifications (<span id="patch-count-detail">0</span> assets changed)</h2>
+                <button class="btn-sm btn-danger" id="btn-clear-patches">Clear All</button>
+            </div>
+            <div id="patch-list">
+                <p class="empty-msg">No modifications yet. Upload replacement images in the Assets tab.</p>
+            </div>
+        </div>
+
+        <!-- ── Tab: Export ─────────────────────────────────────────────────── -->
+        <div class="tab-content" id="tab-export">
+            <h2>Export Firmware</h2>
+
+            <div class="export-summary">
+                <strong id="export-mod-count">0</strong> asset(s) modified and ready to export.
+            </div>
+
+            <div class="export-options">
+
+                <div class="export-card">
+                    <h3>📦 Download Modified Assets (PNG ZIP)</h3>
+                    <p>
+                        Downloads all modified assets as individual PNG files inside a ZIP archive.
+                        Compatible with <a href="https://github.com/nfzerox/ipod_theme" target="_blank" rel="noopener">ipod_theme</a>
+                        and <a href="https://github.com/thgeraads/n7g" target="_blank" rel="noopener">n7g</a> workflows.
+                        This is the recommended export method.
+                    </p>
+                    <button id="btn-export-zip" class="btn-success">⬇ Download PNG ZIP</button>
+                </div>
+
+                <div class="export-card">
+                    <h3>🗄 Download Modified SilverDB</h3>
+                    <p>
+                        Downloads a rebuilt <code>SilverImagesDB.LE.bin</code> with your modifications
+                        packed back into the original binary format. Can be used with custom FAT16/IMG1
+                        repacking tools.
+                    </p>
+                    <button id="btn-export-silverdb">⬇ Download SilverDB</button>
+                </div>
+
+                <div class="export-card experimental">
+                    <h3>⚙️ Rebuild Full IPSW</h3>
+                    <p>
+                        Attempts a complete in-browser IPSW rebuild: SilverDB → FAT16 → IMG1 → MSE → IPSW.
+                        <strong style="color:var(--warn);">The IMG1 signature will be zeroed and invalid.</strong>
+                        The resulting IPSW cannot be flashed on stock hardware.
+                        Use with <a href="https://github.com/CUB3D/ipod_sun" target="_blank" rel="noopener">ipod_sun</a>
+                        or <a href="https://github.com/nfzerox/ipod_theme" target="_blank" rel="noopener">ipod_theme</a> exploit tooling.
+                    </p>
+                    <button id="btn-export-ipsw" class="btn-warn">⚙ Rebuild IPSW (Experimental)</button>
+                </div>
+
+            </div>
+
+            <div id="export-progress-wrap" class="hidden" style="max-width:580px; margin-top:1rem;">
+                <div class="progress-wrap">
+                    <div class="progress-bar" id="export-progress-bar"></div>
+                </div>
+                <div id="export-progress-text" style="font-size:0.78rem; color:var(--text-dim); margin-top:0.3rem; font-family:var(--font-mono);"></div>
+            </div>
+
+            <div id="export-status"></div>
+        </div>
+
+        <!-- ── Tab: Explorer (full view on mobile) ──────────────────────────── -->
+        <div class="tab-content" id="tab-explorer" style="overflow-y:auto; padding:1.25rem; flex-direction:column;">
+            <h2 style="font-size:1rem; margin-bottom:1rem;">Firmware Explorer</h2>
+            <div class="info-card">
+                <h3>IPSW Archive</h3>
+                <div id="firmware-tree-full">–</div>
+            </div>
+            <div class="info-card">
+                <h3>MSE Partition Table</h3>
+                <div id="partition-table-full">–</div>
+            </div>
+            <div class="info-card">
+                <h3>IMG1 Header</h3>
+                <div id="img1-info-full">–</div>
+            </div>
+            <div class="info-card">
+                <h3>FAT16 Filesystem</h3>
+                <div id="fat16-files-full">–</div>
+            </div>
+        </div>
+
+        <!-- ── Tab: About / Info ─────────────────────────────────────────────── -->
+        <div class="tab-content" id="tab-info">
+            <h2>About NanoForge</h2>
+
+            <div class="info-card">
+                <h3>What is NanoForge?</h3>
+                <p>
+                    NanoForge is a browser-based research and development toolkit for creating custom firmware
+                    for the Apple iPod nano 6th and 7th generations. It runs entirely client-side — no server,
+                    no installation required.
+                </p>
+            </div>
+
+            <div class="info-card">
+                <h3>IPSW Parsing Pipeline</h3>
+                <p>NanoForge parses firmware using this chain:</p>
+                <ul>
+                    <li><strong>IPSW</strong> (ZIP) → <strong>Firmware.MSE</strong> (partition container)</li>
+                    <li>MSE → <strong>rsrc.img1</strong> (Apple IMG1 format, v2.0)</li>
+                    <li>IMG1 body → <strong>FAT16 filesystem</strong></li>
+                    <li>FAT16 → <strong>SilverImagesDB.LE.bin</strong> (asset database)</li>
+                    <li>SilverDB → Individual images (BGRA, RGB565, greyscale, paletted)</li>
+                </ul>
+            </div>
+
+            <div class="info-card">
+                <h3>Credits &amp; Prior Art</h3>
+                <p>NanoForge builds on the work of the iPod reverse engineering community:</p>
+                <ul>
+                    <li><a href="https://github.com/thgeraads/n7g" target="_blank" rel="noopener">n7g by thgeraads</a> – IPSW parsing pipeline and SilverDB decoder (core parsers adapted from this project)</li>
+                    <li><a href="https://github.com/nfzerox/ipod_theme" target="_blank" rel="noopener">ipod_theme by nfzerox</a> – Firmware unpacking and asset modification tools</li>
+                    <li><a href="https://github.com/CUB3D/ipod_sun" target="_blank" rel="noopener">ipod_sun by CUB3D</a> – Code execution via CVE-2010-1797 font exploit</li>
+                    <li><a href="https://freemyipod.org" target="_blank" rel="noopener">freemyipod.org</a> – Foundational iPod reverse engineering research</li>
+                </ul>
+                <p style="margin-top:0.5rem;">See <a href="CREDITS.md" target="_blank">CREDITS.md</a> for full attribution.</p>
+            </div>
+
+            <div class="info-card">
+                <h3>Export Modes</h3>
+                <ul>
+                    <li><strong>PNG ZIP</strong> – Download modified assets for use with ipod_theme</li>
+                    <li><strong>SilverDB</strong> – Download modified binary asset database</li>
+                    <li><strong>Full IPSW Rebuild</strong> – Experimental in-browser firmware rebuild (invalid signature)</li>
+                </ul>
+            </div>
+
+            <div class="info-card">
+                <h3>Resources</h3>
+                <ul>
+                    <li><a href="RESEARCH.md" target="_blank">RESEARCH.md</a> – Technical research notes</li>
+                    <li><a href="CONTRIBUTING.md" target="_blank">CONTRIBUTING.md</a> – How to contribute</li>
+                    <li><a href="https://github.com/19JVJeffery/Custom-Firmware-iPod-nano-6-7" target="_blank" rel="noopener">GitHub Repository</a></li>
+                </ul>
+            </div>
+        </div>
+
+    </div><!-- .workspace-body -->
+</div><!-- #screen-workspace -->
+
+<!-- ─── Notifications ──────────────────────────────────────────────────────── -->
+<div id="notifications"></div>
+
+<!-- ─── Dependencies (CDN, no data sent) ──────────────────────────────────── -->
+<script src="https://unpkg.com/fflate@0.8.2/umd/index.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/rgbquant@1.1.2/src/rgbquant.min.js" crossorigin="anonymous"></script>
+
+<!-- ─── Main Application ──────────────────────────────────────────────────── -->
+<script type="module" src="src/ui/app.js"></script>
+
+</body>
+</html>
