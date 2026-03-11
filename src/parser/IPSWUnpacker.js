@@ -29,6 +29,10 @@ export class IPSWUnpacker {
                 file.ondata = () => {};
                 file.start();
             });
+            // Register deflate handler so fflate can decompress method-8 entries.
+            // 7G 2015 IPSWs use deflate compression; without this registration,
+            // fflate.Unzip only handles method 0 (stored) and crashes on method 8.
+            unzipper.register(fflate.UnzipInflate);
             unzipper.onend = (err) => {
                 if (err) reject(err);
                 else resolve(files);
@@ -69,8 +73,16 @@ export class IPSWUnpacker {
                         }
                     };
                     file.start();
+                } else {
+                    // Skip non-target files; fflate still needs to advance past
+                    // their compressed data to reach subsequent entries.
+                    file.ondata = () => {};
+                    file.start();
                 }
             });
+            // Register deflate handler for method-8 entries (7G 2015 IPSWs use
+            // deflate compression; fflate.Unzip only registers method 0 by default).
+            unzipper.register(fflate.UnzipInflate);
 
             unzipper.onend = (err) => {
                 if (err) reject(err);
@@ -116,6 +128,9 @@ export class IPSWUnpacker {
                 };
                 file.start();
             });
+            // Register deflate handler for method-8 entries (7G 2015 IPSWs use
+            // deflate compression; fflate.Unzip only registers method 0 by default).
+            unzipper.register(fflate.UnzipInflate);
 
             unzipper.onend = (err) => {
                 if (err) { reject(err); return; }
