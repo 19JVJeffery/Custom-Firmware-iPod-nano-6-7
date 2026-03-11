@@ -2,3 +2,6 @@ node_modules/
 .DS_Store
 *.local
 dist/
+*.tgz
+package.json
+package-lock.json
