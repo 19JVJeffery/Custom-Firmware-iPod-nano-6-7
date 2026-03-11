@@ -22,7 +22,12 @@ export class IPSWUnpacker {
             const files = [];
             const unzipper = new fflate.Unzip(file => {
                 files.push(file.name);
-                // We do not call file.start() since we only need the filename metadata.
+                // Must call file.start() so fflate can advance past each file's
+                // compressed data (IPSW archives use streaming ZIP with data
+                // descriptors, meaning the size is unknown until decompressed).
+                // Without this, onend never fires and the Promise hangs forever.
+                file.ondata = () => {};
+                file.start();
             });
             unzipper.onend = (err) => {
                 if (err) reject(err);
