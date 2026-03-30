@@ -40,6 +40,22 @@ const state = {
 const patches  = new PatchManager();
 const builder  = new FirmwareBuilder(state);
 
+// ─── Lazy dataURL helper ──────────────────────────────────────────────────────
+// SilverDBUnpacker no longer pre-generates dataURLs for every image (which
+// required a canvas.toDataURL() PNG encode per image, causing the painful
+// startup delay). Instead, we generate the PNG dataURL on first access and
+// cache it back onto the image object so subsequent reads are free.
+let _dataURLCanvas = null;
+function getImgDataURL(img) {
+    if (img.dataURL) return img.dataURL;
+    if (!_dataURLCanvas) _dataURLCanvas = document.createElement('canvas');
+    _dataURLCanvas.width  = img.imageData.width;
+    _dataURLCanvas.height = img.imageData.height;
+    _dataURLCanvas.getContext('2d').putImageData(img.imageData, 0, 0);
+    img.dataURL = _dataURLCanvas.toDataURL('image/png');
+    return img.dataURL;
+}
+
 // ─── DOM References ──────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 
@@ -131,15 +147,13 @@ async function parseIPSW(buffer) {
     setProgress(5, 'Opening IPSW archive…');
     const ipsw = new IPSWUnpacker(buffer);
 
-    setProgress(10, 'Listing IPSW contents…');
-    state.firmwareFiles = await ipsw.listFiles();
+    setProgress(10, 'Listing IPSW contents and extracting Firmware.MSE…');
+    const { files: ipswFiles, data: firmwareMSEBuf } = await ipsw.listAndExtract('Firmware.MSE');
+    state.firmwareFiles = ipswFiles;
     renderFirmwareTree(state.firmwareFiles, formatBytes(buffer.byteLength), state.ipswFile.name);
-
-    setProgress(20, 'Extracting Firmware.MSE…');
-    const firmwareMSEBuf = await ipsw.findAndExtract('Firmware.MSE');
     if (!firmwareMSEBuf) throw new Error('Firmware.MSE not found. Is this a valid iPod nano IPSW?');
 
-    setProgress(35, 'Parsing MSE partition table…');
+    setProgress(30, 'Parsing MSE partition table…');
     const mse      = new MseUnpacker(firmwareMSEBuf);
     const rsrcMeta = mse.findImageByType('rsrc');
     if (!rsrcMeta) throw new Error('rsrc partition not found in Firmware.MSE.');
@@ -309,9 +323,9 @@ function createAssetCard(img, assetId, cfg) {
     card.className = 'asset-card';
     card.dataset.assetId = assetId;
 
-    // Original preview
+    // Original preview – generate the dataURL lazily (only for displayed assets)
     const origImg = document.createElement('img');
-    origImg.src    = img.dataURL;
+    origImg.src    = getImgDataURL(img);
     origImg.width  = img.width;
     origImg.height = img.height;
     origImg.className = 'asset-thumb pixelated';
@@ -397,7 +411,7 @@ async function applyReplacement(assetId, img, file, canvas, ctx, cfg) {
     patches.record(
         assetId,
         canvas,
-        img.dataURL,
+        getImgDataURL(img),
         `${file.name} → ${assetId} (${canvas.width}×${canvas.height}, ${colorStr})`
     );
     updatePatchPanel();
@@ -413,7 +427,7 @@ function revertAsset(assetId, canvas, ctx, img) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(origImg, 0, 0);
     };
-    origImg.src = img.dataURL;
+    origImg.src = getImgDataURL(img);
     canvas.classList.remove('modified');
     updatePatchPanel();
     updateExportPanel();

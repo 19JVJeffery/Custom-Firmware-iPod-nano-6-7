@@ -52,7 +52,9 @@ export class SilverDBUnpacker {
             const fileRef = fileReferences[i];
 
             if (onProgress && typeof onProgress === 'function') {
-                if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
+                // Yield to the browser every 50 images to keep the UI responsive
+                // without the overhead of 4 ms+ setTimeout delays on every batch of 10.
+                if (i % 50 === 0) await new Promise(r => setTimeout(r, 0));
                 onProgress({ processed: i + 1, total: fileReferences.length });
             }
 
@@ -77,14 +79,17 @@ export class SilverDBUnpacker {
 
                 if (pixels) {
                     const imageData = new ImageData(pixels, width, height);
-                    const dataURL = this._createDataURL(imageData);
+                    // dataURL is intentionally omitted here; it is generated lazily
+                    // by the UI only for the assets that are actually displayed,
+                    // avoiding hundreds of expensive PNG-encoding canvas.toDataURL()
+                    // calls for images that may never be shown.
                     extractedImages.push({
                         id: fileId,
                         format: imageFormat,
                         width,
                         height,
                         imageData,
-                        dataURL,
+                        dataURL: null,
                         // Preserve header fields for repacking
                         _headerOffset: imageHeaderOffset,
                         _rowLength: rowLength,
@@ -101,62 +106,73 @@ export class SilverDBUnpacker {
     }
 
     _parsePixelData(dataView, offset, { imageFormat, rowLength, height, width, dataSize }) {
-        let pixels = new Uint8ClampedArray(width * height * 4);
+        const pixels = new Uint8ClampedArray(width * height * 4);
+        const buf = dataView.buffer;
         let p = offset;
 
         switch (imageFormat) {
-            case 0x1888: // BGRA
-                for (let i = 0; i < width * height * 4; i += 4) {
-                    pixels[i + 2] = dataView.getUint8(p++); // B→store at B
-                    pixels[i + 1] = dataView.getUint8(p++); // G
-                    pixels[i + 0] = dataView.getUint8(p++); // R→store at R
-                    pixels[i + 3] = dataView.getUint8(p++); // A
+            case 0x1888: { // BGRA → RGBA
+                // Use a typed Uint8Array view instead of per-byte DataView calls to
+                // avoid method-call overhead on every byte across potentially millions
+                // of pixels spread across hundreds of images.
+                const src = new Uint8Array(buf, p, width * height * 4);
+                for (let i = 0; i < src.length; i += 4) {
+                    pixels[i]     = src[i + 2]; // R (was at B position)
+                    pixels[i + 1] = src[i + 1]; // G
+                    pixels[i + 2] = src[i];     // B (was at R position)
+                    pixels[i + 3] = src[i + 3]; // A
                 }
                 break;
+            }
 
-            case 0x0565: // RGB565
-                for (let i = 0; i < width * height * 4; i += 4) {
-                    const c = dataView.getUint16(p, true); p += 2;
-                    pixels[i + 0] = (c & 0xF800) >> 8;
-                    pixels[i + 1] = (c & 0x07E0) >> 3;
-                    pixels[i + 2] = (c & 0x001F) << 3;
-                    pixels[i + 3] = 255;
+            case 0x0565: { // RGB565 → RGBA
+                const src = new Uint8Array(buf, p, width * height * 2);
+                for (let s = 0, d = 0; d < pixels.length; s += 2, d += 4) {
+                    // Reconstruct the 16-bit value from two bytes (little-endian)
+                    const c = src[s] | (src[s + 1] << 8);
+                    pixels[d]     = (c & 0xF800) >> 8;
+                    pixels[d + 1] = (c & 0x07E0) >> 3;
+                    pixels[d + 2] = (c & 0x001F) << 3;
+                    pixels[d + 3] = 255;
                 }
                 break;
+            }
 
-            case 0x0008: // 8-bit Greyscale
-                for (let i = 0; i < width * height * 4; i += 4) {
-                    const v = dataView.getUint8(p++);
-                    pixels[i] = pixels[i + 1] = pixels[i + 2] = v;
-                    pixels[i + 3] = 255;
+            case 0x0008: { // 8-bit Greyscale
+                const src = new Uint8Array(buf, p, width * height);
+                for (let s = 0, d = 0; s < src.length; s++, d += 4) {
+                    pixels[d] = pixels[d + 1] = pixels[d + 2] = src[s];
+                    pixels[d + 3] = 255;
                 }
                 break;
+            }
 
-            case 0x0004: // 4-bit Greyscale
-                for (let i = 0; i < width * height * 4; i += 8) {
-                    const byte = dataView.getUint8(p++);
-                    const v1 = (byte >> 4) * 17;
-                    const v2 = (byte & 0x0F) * 17;
-                    pixels[i] = pixels[i + 1] = pixels[i + 2] = v1; pixels[i + 3] = 255;
-                    pixels[i + 4] = pixels[i + 5] = pixels[i + 6] = v2; pixels[i + 7] = 255;
+            case 0x0004: { // 4-bit Greyscale
+                const src = new Uint8Array(buf, p, Math.ceil(width * height / 2));
+                for (let s = 0, d = 0; s < src.length; s++, d += 8) {
+                    const v1 = (src[s] >> 4) * 17;
+                    const v2 = (src[s] & 0x0F) * 17;
+                    pixels[d]     = pixels[d + 1] = pixels[d + 2] = v1; pixels[d + 3] = 255;
+                    pixels[d + 4] = pixels[d + 5] = pixels[d + 6] = v2; pixels[d + 7] = 255;
                 }
                 break;
+            }
 
             case 0x0064: { // 8-bit Paletted
                 const paletteLength = dataView.getUint32(p, true); p += 4;
-                const palette = [];
-                for (let i = 0; i < paletteLength; i++) {
-                    const b = dataView.getUint8(p++);
-                    const g = dataView.getUint8(p++);
-                    const r = dataView.getUint8(p++);
-                    const a = dataView.getUint8(p++);
-                    palette.push([r, g, b, a]);
+                const src = new Uint8Array(buf);
+                // Build a flat Uint32 palette (RGBA as little-endian uint32) for
+                // O(1) lookup without array-of-arrays allocation per pixel.
+                const palette32 = new Uint32Array(paletteLength);
+                for (let i = 0; i < paletteLength; i++, p += 4) {
+                    // Stored as BGRA; convert to RGBA for ImageData
+                    // LE uint32 bytes: [R, G, B, A]
+                    palette32[i] = (src[p + 3] << 24) | (src[p] << 16) | (src[p + 1] << 8) | src[p + 2];
                 }
-                for (let i = 0; i < width * height * 4; i += 4) {
-                    const index = dataView.getUint8(p++);
-                    const color = palette[index] || [0, 0, 0, 255];
-                    pixels[i] = color[0]; pixels[i + 1] = color[1];
-                    pixels[i + 2] = color[2]; pixels[i + 3] = color[3];
+                const dstU32 = new Uint32Array(pixels.buffer);
+                const indices = new Uint8Array(buf, p, width * height);
+                for (let i = 0; i < indices.length; i++) {
+                    dstU32[i] = palette32[indices[i]] ?? 0xFF000000;
                 }
                 break;
             }
@@ -167,19 +183,16 @@ export class SilverDBUnpacker {
                     console.warn('[SilverDBUnpacker] Palette too large for 0x0065:', paletteLength);
                     return null;
                 }
-                const palette = [];
-                for (let i = 0; i < paletteLength; i++) {
-                    const b = dataView.getUint8(p++);
-                    const g = dataView.getUint8(p++);
-                    const r = dataView.getUint8(p++);
-                    const a = dataView.getUint8(p++);
-                    palette.push([r, g, b, a]);
+                const src = new Uint8Array(buf);
+                const palette32 = new Uint32Array(paletteLength);
+                for (let i = 0; i < paletteLength; i++, p += 4) {
+                    palette32[i] = (src[p + 3] << 24) | (src[p] << 16) | (src[p + 1] << 8) | src[p + 2];
                 }
-                for (let i = 0; i < width * height * 4; i += 4) {
-                    const index = dataView.getUint16(p, true); p += 2;
-                    const color = palette[index] || [0, 0, 0, 255];
-                    pixels[i] = color[0]; pixels[i + 1] = color[1];
-                    pixels[i + 2] = color[2]; pixels[i + 3] = color[3];
+                const dstU32 = new Uint32Array(pixels.buffer);
+                const indexSrc = new Uint8Array(buf, p, width * height * 2);
+                for (let s = 0, d = 0; d < dstU32.length; s += 2, d++) {
+                    const index = indexSrc[s] | (indexSrc[s + 1] << 8);
+                    dstU32[d] = palette32[index] ?? 0xFF000000;
                 }
                 break;
             }
@@ -189,13 +202,5 @@ export class SilverDBUnpacker {
         }
 
         return pixels;
-    }
-
-    _createDataURL(imageData) {
-        const canvas = document.createElement('canvas');
-        canvas.width = imageData.width;
-        canvas.height = imageData.height;
-        canvas.getContext('2d').putImageData(imageData, 0, 0);
-        return canvas.toDataURL('image/png');
     }
 }
