@@ -94,6 +94,50 @@ export class IPSWUnpacker {
     }
 
     /**
+     * Lists all files in the IPSW archive AND extracts one target file in a
+     * single ZIP decompression pass, avoiding the double-pass overhead of
+     * calling listFiles() followed by findAndExtract() separately.
+     * @param {string} targetFilename - The file to extract (case-insensitive).
+     * @returns {Promise<{files: string[], data: ArrayBuffer|null}>}
+     */
+    listAndExtract(targetFilename) {
+        const targetUpper = targetFilename.toUpperCase();
+        return new Promise((resolve, reject) => {
+            const files = [];
+            let extractedData = null;
+
+            const unzipper = new fflate.Unzip(file => {
+                files.push(file.name);
+                if (file.name.toUpperCase().endsWith(targetUpper)) {
+                    console.log(`[IPSWUnpacker] Found target file: ${file.name}`);
+                    const chunks = [];
+                    file.ondata = (err, chunk, final) => {
+                        if (err) { reject(err); return; }
+                        chunks.push(chunk);
+                        if (final) {
+                            const combined = new Uint8Array(
+                                chunks.reduce((acc, c) => acc + c.length, 0)
+                            );
+                            let offset = 0;
+                            for (const c of chunks) { combined.set(c, offset); offset += c.length; }
+                            extractedData = combined.buffer;
+                        }
+                    };
+                } else {
+                    file.ondata = () => {};
+                }
+                file.start();
+            });
+            unzipper.register(fflate.UnzipInflate);
+            unzipper.onend = (err) => {
+                if (err) reject(err);
+                else resolve({ files, data: extractedData });
+            };
+            unzipper.push(this.buffer, true);
+        });
+    }
+
+    /**
      * Repacks a modified file into the IPSW archive.
      * @param {string} targetFilename - The filename to replace (case-insensitive match).
      * @param {ArrayBuffer} newData - The new file data.
