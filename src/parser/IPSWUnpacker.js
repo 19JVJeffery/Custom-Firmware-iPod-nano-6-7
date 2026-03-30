@@ -25,7 +25,6 @@ export class IPSWUnpacker {
                 // Must call file.start() so fflate can advance past each file's
                 // compressed data (IPSW archives use streaming ZIP with data
                 // descriptors, meaning the size is unknown until decompressed).
-                // Without this, onend never fires and the Promise hangs forever.
                 file.ondata = () => {};
                 file.start();
             });
@@ -33,11 +32,14 @@ export class IPSWUnpacker {
             // 7G 2015 IPSWs use deflate compression; without this registration,
             // fflate.Unzip only handles method 0 (stored) and crashes on method 8.
             unzipper.register(fflate.UnzipInflate);
-            unzipper.onend = (err) => {
-                if (err) reject(err);
-                else resolve(files);
-            };
-            unzipper.push(this.buffer, true);
+            // fflate.Unzip has no onend callback — push() is synchronous when all
+            // data is provided at once with final=true, so resolve after it returns.
+            try {
+                unzipper.push(this.buffer, true);
+                resolve(files);
+            } catch (e) {
+                reject(e);
+            }
         });
     }
 
@@ -84,12 +86,16 @@ export class IPSWUnpacker {
             // deflate compression; fflate.Unzip only registers method 0 by default).
             unzipper.register(fflate.UnzipInflate);
 
-            unzipper.onend = (err) => {
-                if (err) reject(err);
-                else if (!foundFile) resolve(null);
-            };
-
-            unzipper.push(this.buffer, true);
+            // fflate.Unzip has no onend callback — push() is synchronous when all
+            // data is provided at once with final=true. Resolve/reject after it returns.
+            // If the file was found, resolve(combined.buffer) was already called from
+            // inside ondata; in that case !foundFile is false and resolve(null) is skipped.
+            try {
+                unzipper.push(this.buffer, true);
+                if (!foundFile) resolve(null);
+            } catch (e) {
+                reject(e);
+            }
         });
     }
 
@@ -129,11 +135,14 @@ export class IPSWUnpacker {
                 file.start();
             });
             unzipper.register(fflate.UnzipInflate);
-            unzipper.onend = (err) => {
-                if (err) reject(err);
-                else resolve({ files, data: extractedData });
-            };
-            unzipper.push(this.buffer, true);
+            // fflate.Unzip has no onend callback — push() is synchronous when all
+            // data is provided at once with final=true, so resolve after it returns.
+            try {
+                unzipper.push(this.buffer, true);
+                resolve({ files, data: extractedData });
+            } catch (e) {
+                reject(e);
+            }
         });
     }
 
@@ -176,17 +185,16 @@ export class IPSWUnpacker {
             // deflate compression; fflate.Unzip only registers method 0 by default).
             unzipper.register(fflate.UnzipInflate);
 
-            unzipper.onend = (err) => {
-                if (err) { reject(err); return; }
-                try {
-                    const zipped = fflate.zipSync(allFiles, { level: 0 });
-                    resolve(zipped.buffer);
-                } catch (e) {
-                    reject(e);
-                }
-            };
-
-            unzipper.push(this.buffer, true);
+            // fflate.Unzip has no onend callback — push() is synchronous when all
+            // data is provided at once with final=true. After push() returns, all
+            // files have been collected in allFiles; zip them synchronously.
+            try {
+                unzipper.push(this.buffer, true);
+                const zipped = fflate.zipSync(allFiles, { level: 0 });
+                resolve(zipped.buffer);
+            } catch (e) {
+                reject(e);
+            }
         });
     }
 }
